@@ -28,7 +28,7 @@ Parameters:
   SSHKeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Select the SSH keypair for the instances
-    Default: securlyprod-11012018
+    Default: squadri-test
 
 Resources:
 

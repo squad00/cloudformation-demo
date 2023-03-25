@@ -14,7 +14,7 @@ Mappings:
       MinOnDemand: 0
       MinSpot: 0
       SpacCodedeployTag: "cf-use-dns-spac-instance"
-      SG: "sg-1e3dc96d"
+      SG: "sg-055e795c2f6753ced"
       SubnetPrimary: "subnet-802d52db"
       SubnetPrimaryGnp: "subnet-802d52db"
       SubnetSecondary: "subnet-802d52db"

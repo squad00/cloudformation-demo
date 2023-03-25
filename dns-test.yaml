@@ -43,14 +43,7 @@ Resources:
           Arn: >-
             arn:aws:iam::280563394466:instance-profile/squadri-test
         ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
-        InstanceRequirements:
-          InstanceGenerations:
-            - current
-          MemoryMiB:
-            Min: 8192
-          VCpuCount:
-            Min: 2
-            Max: 4
+        InstanceType: "t2.micro"
         # BlockDeviceMappings:
         #   - Ebs:
         #       VolumeSize: 16

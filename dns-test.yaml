@@ -7,12 +7,12 @@ Mappings:
       AMI: "ami-019c112dfb54a574f"
       DnsCodedeployTag: "cf-use-dns-instance"
       DnsGnpCodedeployTag: "cf-use-dns-gnp-instance"
-      DesiredOnDemand: 0
-      DesiredSpot: 5
-      MaxOnDemand: 250
-      MaxSpot: 250
-      MinOnDemand: 0
-      MinSpot: 5
+#       DesiredOnDemand: 0
+#       DesiredSpot: 5
+#       MaxOnDemand: 250
+#       MaxSpot: 250
+#       MinOnDemand: 0
+#       MinSpot: 5
       SpacCodedeployTag: "cf-use-dns-spac-instance"
       SG: "sg-055e795c2f6753ced"
       SubnetPrimary: "subnet-802d52db"
@@ -83,9 +83,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-primary-spot
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimary]
@@ -181,9 +181,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-primary-ondemand
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimary]
@@ -243,9 +243,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-secondary-spot
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondary]
@@ -341,9 +341,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-secondary-ondemand
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondary]
@@ -403,9 +403,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-gnp-primary-spot
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimaryGnp]
@@ -501,9 +501,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-gnp-primary-ondemand
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimaryGnp]
@@ -563,9 +563,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-gnp-secondary-spot
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondaryGnp]
@@ -661,9 +661,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-gnp-secondary-ondemand
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondaryGnp]
@@ -726,9 +726,9 @@ Resources:
       # MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
       # MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
       # DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
-      MaxSize: 250
-      MinSize: 30
-      DesiredCapacity: 30
+#       MaxSize: 250
+#       MinSize: 30
+#       DesiredCapacity: 30
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac1]
@@ -848,9 +848,9 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-spac-ondemand
-      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
-      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
-      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac1]

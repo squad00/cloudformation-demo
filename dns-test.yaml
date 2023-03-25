@@ -834,9 +834,8 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: cf-dns-spac-ondemand
-#       MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
-#       MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
-#       DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
       CapacityRebalance: true
       VPCZoneIdentifier:
         - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac1]

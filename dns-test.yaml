@@ -8,11 +8,11 @@ Mappings:
       DnsCodedeployTag: "cf-use-dns-instance"
       DnsGnpCodedeployTag: "cf-use-dns-gnp-instance"
       DesiredOnDemand: 0
-      DesiredSpot: 0
+      DesiredSpot: 5
       MaxOnDemand: 250
       MaxSpot: 250
       MinOnDemand: 0
-      MinSpot: 0
+      MinSpot: 5
       SpacCodedeployTag: "cf-use-dns-spac-instance"
       SG: "sg-055e795c2f6753ced"
       SubnetPrimary: "subnet-802d52db"

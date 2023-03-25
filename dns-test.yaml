@@ -41,7 +41,7 @@ Resources:
       LaunchTemplateData:
         IamInstanceProfile:
           Arn: >-
-            arn:aws:iam::280563394466:role/squadri-test
+            arn:aws:iam::280563394466:instance-profile/squadri-test
         ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
         InstanceRequirements:
           InstanceGenerations:

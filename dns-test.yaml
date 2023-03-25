@@ -41,7 +41,7 @@ Resources:
       LaunchTemplateData:
         IamInstanceProfile:
           Arn: >-
-            arn:aws:iam::871301425764:instance-profile/ec2-service-role-ssm-codedeploy
+            arn:aws:iam::280563394466:role/squadri-test
         ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
         InstanceRequirements:
           InstanceGenerations:

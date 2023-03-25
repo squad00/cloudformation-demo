@@ -1,0 +1,937 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      AMI: "ami-019c112dfb54a574f"
+      DnsCodedeployTag: "cf-use-dns-instance"
+      DnsGnpCodedeployTag: "cf-use-dns-gnp-instance"
+      DesiredOnDemand: 0
+      DesiredSpot: 0
+      MaxOnDemand: 250
+      MaxSpot: 250
+      MinOnDemand: 0
+      MinSpot: 0
+      SpacCodedeployTag: "cf-use-dns-spac-instance"
+      SG: "sg-1e3dc96d"
+      SubnetPrimary: "subnet-802d52db"
+      SubnetPrimaryGnp: "subnet-802d52db"
+      SubnetSecondary: "subnet-802d52db"
+      SubnetSecondaryGnp: "subnet-802d52db"
+      Subnetdnsspac1: "subnet-802d52db"
+      Subnetdnsspac2: "subnet-012ca8d80c4534138"
+      VPC: "vpc-d3149ab5"
+
+Parameters:
+
+  SSHKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select the SSH keypair for the instances
+    Default: securlyprod-11012018
+
+Resources:
+
+  ### launch template ###
+
+  dnsInstanceLaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: cf-dns-instance
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: >-
+            arn:aws:iam::871301425764:instance-profile/ec2-service-role-ssm-codedeploy
+        ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+        InstanceRequirements:
+          InstanceGenerations:
+            - current
+          MemoryMiB:
+            Min: 8192
+          VCpuCount:
+            Min: 2
+            Max: 4
+        # BlockDeviceMappings:
+        #   - Ebs:
+        #       VolumeSize: 16
+        #       VolumeType: gp3
+        #       DeleteOnTermination: true
+        #       Encrypted: false
+        #       Iops: 3000
+        #     DeviceName: /dev/xvda
+        #   - Ebs:
+        #       VolumeSize: 4
+        #       VolumeType: gp2
+        #       DeleteOnTermination: true
+        #       Encrypted: false
+        #     DeviceName: /dev/sdf
+        Monitoring:
+          Enabled: true
+        KeyName:
+          Ref: SSHKeyName
+        SecurityGroupIds:
+          - !FindInMap [RegionMap, !Ref "AWS::Region", SG]
+        PrivateDnsNameOptions:
+          HostnameType: ip-name
+        InstanceInitiatedShutdownBehavior: terminate
+        TagSpecifications:
+          - ResourceType: volume
+            Tags:
+            - Key: Name
+              Value: dns
+          - ResourceType: network-interface
+            Tags:
+            - Key: Name
+              Value: dns
+
+  #### Auto scaling group cf-dns-primary-spot ####
+
+  dnsprimaryspot:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-primary-spot
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimary]
+      TargetGroupARNs:
+        - Ref: dnsprimarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: spot
+          PropagateAtLaunch: true
+  dynamicscalingpolicy2aspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsprimaryspot
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 30
+  predictivescalingpolicy2aspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsprimaryspot
+      PolicyType: PredictiveScaling
+      PredictiveScalingConfiguration:
+        MaxCapacityBreachBehavior: IncreaseMaxCapacity
+        MaxCapacityBuffer: 20
+        MetricSpecifications:
+          - TargetValue: '30'
+            PredefinedMetricPairSpecification:
+              PredefinedMetricType: ASGCPUUtilization
+        Mode: ForecastAndScale
+        SchedulingBufferTime: 300
+
+  ### Target group for cf-dns-primary ###
+
+  dnsprimarytargetgroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: TCP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      Name: cf-dns-primary-nlb
+      Protocol: TCP_UDP
+      Port: 53
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.connection_termination.enabled
+          Value: true
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60
+      VpcId: !FindInMap [RegionMap, !Ref "AWS::Region", VPC]
+
+  #### Auto scaling group cf-dns-primary-ondemand ####
+
+  dnsprimaryondemand:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-primary-ondemand
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimary]
+      TargetGroupARNs:
+        - Ref: dnsprimarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 100
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: ondemand
+          PropagateAtLaunch: true
+  dynamicscalingpolicy2aondemand:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsprimaryondemand
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 40
+
+  ### Auto scaling group cf-dns-secondary-spot ###
+
+  dnssecondaryspot:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-secondary-spot
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondary]
+      TargetGroupARNs:
+        - Ref: dnssecondarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: spot
+          PropagateAtLaunch: true
+  dynamicscalingpolicy2bspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnssecondaryspot
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 30
+  predictivescalingpolicy2bspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnssecondaryspot
+      PolicyType: PredictiveScaling
+      PredictiveScalingConfiguration:
+        MaxCapacityBreachBehavior: IncreaseMaxCapacity
+        MaxCapacityBuffer: 20
+        MetricSpecifications:
+          - TargetValue: '30'
+            PredefinedMetricPairSpecification:
+              PredefinedMetricType: ASGCPUUtilization
+        Mode: ForecastAndScale
+        SchedulingBufferTime: 300
+
+  ### Target group for cf-dns-secondary-spot ###
+
+  dnssecondarytargetgroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: TCP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      Name: cf-dns-secondary-nlb
+      Protocol: TCP_UDP
+      Port: 53
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.connection_termination.enabled
+          Value: true
+        - Key: deregistration_delay.timeout_seconds
+          Value: 60
+      VpcId: !FindInMap [RegionMap, !Ref "AWS::Region", VPC]
+
+  ### Auto scaling group cf-dns-secondary-ondemand ###
+
+  dnssecondaryondemand:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-secondary-ondemand
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondary]
+      TargetGroupARNs:
+        - Ref: dnssecondarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 100
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: ondemand
+          PropagateAtLaunch: true
+  dynamicscalingpolicy2bondemand:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnssecondaryondemand
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 40
+
+  #### Auto scaling group cf-dns-gnp-primary-spot ####
+
+  dnsgnpprimaryspot:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-gnp-primary-spot
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimaryGnp]
+      TargetGroupARNs:
+        - Ref: dnsgnpprimarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsGnpCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-gnp-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: spot
+          PropagateAtLaunch: true
+  dynamicscalingpolicygnp2aspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsgnpprimaryspot
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 30
+  predictivescalingpolicygnp2aspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsgnpprimaryspot
+      PolicyType: PredictiveScaling
+      PredictiveScalingConfiguration:
+        MaxCapacityBreachBehavior: IncreaseMaxCapacity
+        MaxCapacityBuffer: 20
+        MetricSpecifications:
+          - TargetValue: '30'
+            PredefinedMetricPairSpecification:
+              PredefinedMetricType: ASGCPUUtilization
+        Mode: ForecastAndScale
+        SchedulingBufferTime: 300
+
+  ### Target group for cf-dns-gnp-primary ###
+
+  dnsgnpprimarytargetgroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: TCP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 3
+      Name: cf-dns-gnp-primary-nlb
+      Protocol: TCP_UDP
+      Port: 53
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - Key: deregistration_delay.connection_termination.enabled
+          Value: true
+        - Key: deregistration_delay.timeout_seconds
+          Value: 10
+      VpcId: !FindInMap [RegionMap, !Ref "AWS::Region", VPC]
+
+  #### Auto scaling group cf-dns-gnp-primary-ondemand ####
+
+  dnsgnpprimaryondemand:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-gnp-primary-ondemand
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetPrimaryGnp]
+      TargetGroupARNs:
+        - Ref: dnsgnpprimarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 100
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsGnpCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-gnp-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: ondemand
+          PropagateAtLaunch: true
+  dynamicscalingpolicygnp2aondemand:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsgnpprimaryondemand
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 40
+
+  ### Auto scaling group cf-dns-gnp-secondary-spot ###
+
+  dnsgnpsecondaryspot:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-gnp-secondary-spot
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondaryGnp]
+      TargetGroupARNs:
+        - Ref: dnsgnpsecondarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsGnpCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-gnp-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: spot
+          PropagateAtLaunch: true
+  dynamicscalingpolicygnp2bspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsgnpsecondaryspot
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 30
+  predictivescalingpolicygnp2bspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsgnpsecondaryspot
+      PolicyType: PredictiveScaling
+      PredictiveScalingConfiguration:
+        MaxCapacityBreachBehavior: IncreaseMaxCapacity
+        MaxCapacityBuffer: 20
+        MetricSpecifications:
+          - TargetValue: '30'
+            PredefinedMetricPairSpecification:
+              PredefinedMetricType: ASGCPUUtilization
+        Mode: ForecastAndScale
+        SchedulingBufferTime: 300
+
+  ### Target group for cf-dns-gnp-secondary-spot ###
+
+  dnsgnpsecondarytargetgroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: TCP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 3
+      Name: cf-dns-gnp-secondary-nlb
+      Protocol: TCP_UDP
+      Port: 53
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - Key: deregistration_delay.connection_termination.enabled
+          Value: true
+        - Key: deregistration_delay.timeout_seconds
+          Value: 300
+      VpcId: !FindInMap [RegionMap, !Ref "AWS::Region", VPC]
+
+  ### Auto scaling group cf-dns-gnp-secondary-ondemand ###
+
+  dnsgnpsecondaryondemand:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-gnp-secondary-ondemand
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", SubnetSecondaryGnp]
+      TargetGroupARNs:
+        - Ref: dnsgnpsecondarytargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 100
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: DNS
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", DnsGnpCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-gnp-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: ondemand
+          PropagateAtLaunch: true
+  dynamicscalingpolicygnp2bondemand:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsgnpsecondaryondemand
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 40
+
+  ### Auto scaling group cf-dns-spac-spot ###
+
+  dnsspacspot:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-spac-spot
+      # MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxSpot]
+      # MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinSpot]
+      # DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredSpot]
+      MaxSize: 250
+      MinSize: 30
+      DesiredCapacity: 30
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac1]
+        - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac2]
+      TargetGroupARNs:
+        - Ref: dnsspactargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 0
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      MetricsCollection: 
+        - Granularity: 1Minute
+          Metrics: 
+            - GroupMinSize
+            - GroupMaxSize
+            - GroupDesiredCapacity
+            - GroupInServiceInstances
+            - GroupPendingInstances
+            - GroupStandbyInstances
+            - GroupTerminatingInstances
+            - GroupTotalInstances
+            - GroupInServiceCapacity
+            - GroupPendingCapacity
+            - GroupStandbyCapacity
+            - GroupTerminatingCapacity
+            - GroupTotalCapacity
+            - WarmPoolDesiredCapacity
+            - WarmPoolWarmedCapacity
+            - WarmPoolPendingCapacity
+            - WarmPoolTerminatingCapacity
+            - WarmPoolTotalCapacity
+            - GroupAndWarmPoolDesiredCapacity
+            - GroupAndWarmPoolDesiredCapacity
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: SmartPAC
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", SpacCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-spac-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: spot
+          PropagateAtLaunch: true
+  dynamicscalingpolicyspacspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsspacspot
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 5
+  predictivescalingpolicydnsspacspot:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsspacspot
+      PolicyType: PredictiveScaling
+      PredictiveScalingConfiguration:
+        MaxCapacityBreachBehavior: IncreaseMaxCapacity
+        MaxCapacityBuffer: 20
+        MetricSpecifications:
+          - TargetValue: '6'
+            PredefinedMetricPairSpecification:
+              PredefinedMetricType: ASGCPUUtilization
+        Mode: ForecastAndScale
+        SchedulingBufferTime: 300
+
+  ### Target group for cf-dns-spac-spot ###
+
+  dnsspactargetgroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckProtocol: TCP
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      Name: cf-dns-spac
+      Protocol: TCP_UDP
+      Port: 53
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.connection_termination.enabled
+          Value: true
+        - Key: deregistration_delay.timeout_seconds
+          Value: 120
+      VpcId: !FindInMap [RegionMap, !Ref "AWS::Region", VPC]
+
+  ### Auto scaling group cf-dns-spac-ondemand ###
+
+  dnsspacondemand:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: cf-dns-spac-ondemand
+      MaxSize: !FindInMap [RegionMap, !Ref "AWS::Region", MaxOnDemand]
+      MinSize: !FindInMap [RegionMap, !Ref "AWS::Region", MinOnDemand]
+      DesiredCapacity: !FindInMap [RegionMap, !Ref "AWS::Region", DesiredOnDemand]
+      CapacityRebalance: true
+      VPCZoneIdentifier:
+        - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac1]
+        - !FindInMap [RegionMap, !Ref "AWS::Region", Subnetdnsspac2]
+      TargetGroupARNs:
+        - Ref: dnsspactargetgroup
+      MixedInstancesPolicy:
+        InstancesDistribution:
+          OnDemandAllocationStrategy: lowest-price
+          OnDemandBaseCapacity: 0
+          OnDemandPercentageAboveBaseCapacity: 100
+          SpotAllocationStrategy: capacity-optimized
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId:
+              Ref: dnsInstanceLaunchTemplate
+            Version: !GetAtt dnsInstanceLaunchTemplate.LatestVersionNumber
+      MetricsCollection: 
+        - Granularity: 1Minute
+          Metrics: 
+            - GroupMinSize
+            - GroupMaxSize
+            - GroupDesiredCapacity
+            - GroupInServiceInstances
+            - GroupPendingInstances
+            - GroupStandbyInstances
+            - GroupTerminatingInstances
+            - GroupTotalInstances
+            - GroupInServiceCapacity
+            - GroupPendingCapacity
+            - GroupStandbyCapacity
+            - GroupTerminatingCapacity
+            - GroupTotalCapacity
+            - WarmPoolDesiredCapacity
+            - WarmPoolWarmedCapacity
+            - WarmPoolPendingCapacity
+            - WarmPoolTerminatingCapacity
+            - WarmPoolTotalCapacity
+            - GroupAndWarmPoolDesiredCapacity
+            - GroupAndWarmPoolDesiredCapacity
+      Tags:
+        - Key: Cluster
+          Value: prod
+          PropagateAtLaunch: true
+        - Key: Group
+          Value: SmartPAC
+          PropagateAtLaunch: true
+        - Key: HostOs
+          Value: AmazonLinux
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !FindInMap [RegionMap, !Ref "AWS::Region", SpacCodedeployTag]
+          PropagateAtLaunch: true
+        - Key: SSMGroup
+          Value: dns-all
+          PropagateAtLaunch: true
+        - Key: SSMTarget
+          Value: dns-spac-asg-prod
+          PropagateAtLaunch: true
+        - Key: Type1
+          Value: SSMManaged
+          PropagateAtLaunch: true
+        - Key: Lifecycle
+          Value: ondemand
+          PropagateAtLaunch: true
+  dynamicscalingpolicyspacondemand:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName:
+        Ref: dnsspacondemand
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        DisableScaleIn: false
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 8
+
